@@ -1,0 +1,17 @@
+# environment
+.venv/
+__pycache__/
+*.pyc
+
+# large files belong in the data store (../diffpol_store, see umi_lite/paths.py) - safety net if a
+# path ever resolves into the repo
+data/
+runs/
+recordings/
+markers/
+dist/
+calib/
+*.pt
+*.npz
+*.mp4
+*.zip
