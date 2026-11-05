@@ -65,6 +65,7 @@ code(r"""
 # ---------------- fetch code (fresh copy every session) ----------------
 import shutil
 CODE = "/content/diffpol"
+os.chdir("/content")                                  # re-runs: the kernel may still sit inside the old CODE dir
 shutil.rmtree(CODE, ignore_errors=True)
 if CODE_SOURCE == "git":
     url, why = GIT_URL, ""
@@ -77,10 +78,13 @@ if CODE_SOURCE == "git":
         print(why)
     r = subprocess.run(["git", "clone", "--depth", "1", "-b", GIT_BRANCH, url, CODE], capture_output=True, text=True)
     if r.returncode:
-        raise RuntimeError(f"git clone failed. {why or 'Token rejected (expired? no Contents:read on this repo?)'}\n"
-                           "Private repo: key icon (left bar) -> Add new secret GITHUB_TOKEN = fine-grained token with "
-                           "Contents: read-only on this repo, and switch 'Notebook access' on.\n"
-                           + r.stderr.replace(url, GIT_URL))
+        err = r.stderr.replace(url, GIT_URL)
+        hint = ""
+        if any(s in err for s in ("403", "401", "could not read Username", "Authentication failed", "not found")):
+            hint = (f"{why or 'Token rejected (expired? repo not selected? no Contents: read-only?)'}\n"
+                    "Private repo: key icon (left bar) -> secret GITHUB_TOKEN = fine-grained token, resource owner = "
+                    "repo owner, 'Only select repositories' incl. this repo, Contents: read-only; 'Notebook access' on.\n")
+        raise RuntimeError("git clone failed.\n" + hint + err)
 else:
     os.makedirs(CODE)
     zip_path = f"{STORE}/dist/umi_lite.zip"
