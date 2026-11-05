@@ -6,6 +6,8 @@ import argparse
 import collections
 import json
 import os
+import shutil
+import tempfile
 
 import cv2
 import numpy as np
@@ -25,6 +27,21 @@ def wrap90(a):
 def hand_yaw(env):
     R = env.hand_pose()[:3, :3]
     return float(np.arctan2(R[1, 0], R[0, 0]))
+
+
+def write_video(path, frames, fps=10):
+    """write to a local temp file, then move: OpenCV's mp4 writer can fail silently on network/FUSE
+    mounts such as Google Drive on Colab"""
+    tmp = os.path.join(tempfile.gettempdir(), f"umi_eval_{os.getpid()}.mp4")
+    h, w = frames[0].shape[:2]
+    vw = cv2.VideoWriter(tmp, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
+    if not vw.isOpened():
+        print(f"WARNING: could not open video writer for {path}")
+        return
+    for f in frames:
+        vw.write(cv2.cvtColor(f, cv2.COLOR_RGB2BGR))
+    vw.release()
+    shutil.move(tmp, path)
 
 
 def smooth_actions(acts, k):
@@ -73,10 +90,7 @@ def run_episode(env, pol, seed, exec_horizon, max_steps, device, video_path=None
             break
     ok = env.success()
     if video_path:
-        vw = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*"mp4v"), 10, (320, 320))
-        for f in frames:
-            vw.write(cv2.cvtColor(f, cv2.COLOR_RGB2BGR))
-        vw.release()
+        write_video(video_path, frames)
     info.update(success=bool(ok), steps=steps)
     return info
 

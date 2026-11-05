@@ -123,10 +123,15 @@ code(r"""
 """)
 code(r"""
 # ---------------- show an evaluation video (re-encode to H.264 so the browser can play it) ----------------
-from IPython.display import HTML
+from IPython.display import HTML, display
 from base64 import b64encode
-!ffmpeg -y -loglevel error -i {RUN_DIR}/eval_videos/ep_000.mp4 -vcodec libx264 -pix_fmt yuv420p /content/ep_000_h264.mp4
-HTML(f'<video width=480 controls><source src="data:video/mp4;base64,{b64encode(open("/content/ep_000_h264.mp4","rb").read()).decode()}" type="video/mp4"></video>')
+VIDEO_EP = 0                                          # first 5 episodes are recorded (ep_000 .. ep_004)
+src = f"{RUN_DIR}/eval_videos/ep_{VIDEO_EP:03d}.mp4"
+if not os.path.exists(src):
+    print(f"no video at {src} - did the evaluation cell above finish? (its output shows errors, if any)")
+else:
+    !ffmpeg -y -loglevel error -i {src} -vcodec libx264 -pix_fmt yuv420p /content/ep_h264.mp4
+    display(HTML(f'<video width=480 controls><source src="data:video/mp4;base64,{b64encode(open("/content/ep_h264.mp4","rb").read()).decode()}" type="video/mp4"></video>'))
 """)
 code(r"""
 # ---------------- download the run (checkpoint + logs) - essential when running without Drive ----------------
