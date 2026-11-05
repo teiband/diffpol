@@ -67,15 +67,19 @@ import shutil
 CODE = "/content/diffpol"
 shutil.rmtree(CODE, ignore_errors=True)
 if CODE_SOURCE == "git":
-    url = GIT_URL
+    url, why = GIT_URL, ""
     try:                                              # private repo: token from Colab secrets
         from google.colab import userdata
-        url = GIT_URL.replace("https://", f"https://x-access-token:{userdata.get('GITHUB_TOKEN')}@")
-    except Exception:
-        pass                                          # no secret -> public clone
+        url = GIT_URL.replace("https://", f"https://x-access-token:{userdata.get('GITHUB_TOKEN').strip()}@")
+        print("using GITHUB_TOKEN secret")
+    except Exception as e:                            # no secret / notebook access not granted -> public clone
+        why = f"GITHUB_TOKEN not used ({type(e).__name__}: {e})"
+        print(why)
     r = subprocess.run(["git", "clone", "--depth", "1", "-b", GIT_BRANCH, url, CODE], capture_output=True, text=True)
     if r.returncode:
-        raise RuntimeError("git clone failed (private repo? add the GITHUB_TOKEN secret): "
+        raise RuntimeError(f"git clone failed. {why or 'Token rejected (expired? no Contents:read on this repo?)'}\n"
+                           "Private repo: key icon (left bar) -> Add new secret GITHUB_TOKEN = fine-grained token with "
+                           "Contents: read-only on this repo, and switch 'Notebook access' on.\n"
                            + r.stderr.replace(url, GIT_URL))
 else:
     os.makedirs(CODE)
