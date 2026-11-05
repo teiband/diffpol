@@ -4,13 +4,13 @@ __pycache__/
 *.pyc
 
 # large files belong in the data store (../diffpol_store, see umi_lite/paths.py) - safety net if a
-# path ever resolves into the repo
-data/
-runs/
-recordings/
-markers/
-dist/
-calib/
+# path ever resolves into the repo. Leading "/" = only at the repo root (umi_lite/data/ is code!)
+/data/
+/runs/
+/recordings/
+/markers/
+/dist/
+/calib/
 *.pt
 *.npz
 *.mp4
