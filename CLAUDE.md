@@ -110,6 +110,18 @@ or offline on held-out real demos. User-facing docs: `README.md`, `docs/HARDWARE
     closed-empty → lift → realign → grasp → place (some are drop-in-carry recoveries starting at z ~7 cm).
   - Notebook: `TASK="sim_pick_v2"`, 100 clean + 60 perturb + 40 regrasp, `RUN_NAME="sim_pick_v2_resnet18"`,
     300 epochs (~2x samples → ~75 min on T4). Compare with `--ddim-steps 50 --smooth 3` against 78 % (v1).
+- **v2 result (2026-11-06, Colab T4, run `runs/sim_pick_v2_resnet18` in the store)**: 200 demos (100 clean /
+  60 perturb / 40 regrasp), resnet18, 300 epochs = 41.7k steps; loss 0.0036, val pos err **10.4 mm** (v1 13.9).
+  Closed loop with `--ddim-steps 50 --smooth 3`: **50/50 (Colab, seeds 10000+)** and **100/100 (local CPU,
+  new seeds 20000+)**; plain DDIM 10 without smoothing: 48/50 (96 %; v1 44 %). Grasp centring: median dxy at
+  close 4.1 mm (v1 ~12). Chunk roughness on train samples 6.8 mm (DDIM 10) / 5.6 mm (DDIM 50) vs v1 16.9/11.3,
+  GT 3.2. Recovery observed: seed 10009 (raw settings) misses and knocks the cube, returns, re-centres,
+  grasps, places (79 steps; video `regrasp_10009/`); seed 10039 (CPU replay) first hovers over the target ~60
+  steps, then fetches the cube (`recovery_10039/`). CPU replays of Colab seeds differ (sampling noise differs
+  across devices). Sim task is now essentially solved → next would be harder variation or real data.
+  User asked which implementation: own compact re-implementation of CNN Diffusion Policy (Chi et al. 2023)
+  in `policy.py`, image model = torchvision ResNet-18 from scratch with GroupNorm (no pretrained weights),
+  96 px → 88 crop; UMI itself uses CLIP ViT-B/16 at 224 px; LeRobot DiffusionPolicy = closest alternative.
 - **Repo vs. data store (2026-11-05)**: git repo `D:\workspace\diffpol` → `git@github.com:teiband/diffpol.git`
   (branch `main`). Large files moved to the sibling **data store** `D:\workspace\diffpol_store`
   (`data/ runs/ recordings/ markers/ dist/`, ~700 MB), override with env `UMI_STORE`. `umi_lite/paths.py`:
