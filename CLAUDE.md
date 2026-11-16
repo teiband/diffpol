@@ -122,6 +122,13 @@ or offline on held-out real demos. User-facing docs: `README.md`, `docs/HARDWARE
   User asked which implementation: own compact re-implementation of CNN Diffusion Policy (Chi et al. 2023)
   in `policy.py`, image model = torchvision ResNet-18 from scratch with GroupNorm (no pretrained weights),
   96 px → 88 crop; UMI itself uses CLIP ViT-B/16 at 224 px; LeRobot DiffusionPolicy = closest alternative.
+- **Floor robustness test (2026-11-16, implemented + smoke-tested in a cloud session, not yet run on a trained
+  ckpt)**: `PickPlaceEnv(floor=..., floor_repeat=...)` overwrites the floor texture data before the renderers
+  are created (physics untouched). Presets `sim/env.py:FLOORS` = default, plain, dark, light, blue, fine (2 cm),
+  coarse (20 cm), noise, wood; or any image file (centre-square crop, 512 px, repeat 3 across the 1.2 m table).
+  `eval_policy --floor default plain dark wood my.jpg [--floor-repeat N]` runs the same seeds + sampling noise
+  on each floor, writes `eval_grasp_<floor>.json` / videos in `<video>/<floor>/`, prints a paired comparison
+  table vs the first floor. Demos are still collected on the default floor only (no floor randomization yet).
 - **Repo vs. data store (2026-11-05)**: git repo `D:\workspace\diffpol` → `git@github.com:teiband/diffpol.git`
   (branch `main`). Large files moved to the sibling **data store** `D:\workspace\diffpol_store`
   (`data/ runs/ recordings/ markers/ dist/`, ~700 MB), override with env `UMI_STORE`. `umi_lite/paths.py`:

@@ -1,11 +1,17 @@
 """Closed-loop evaluation of a trained policy in the MuJoCo pick-and-place task.
 
     python -m umi_lite.sim.eval_policy --ckpt runs/sim_pick/last.pt --episodes 50 --video runs/sim_pick/eval
+
+Visual robustness: evaluate the same seeds on other floor appearances (presets or image files; the policy
+was trained on "default" only). Prints a comparison table, paired against the first floor:
+
+    python -m umi_lite.sim.eval_policy --ckpt runs/sim_pick/last.pt --floor default plain dark wood my_table.jpg
 """
 import argparse
 import collections
 import json
 import os
+import re
 import shutil
 import tempfile
 
@@ -15,7 +21,7 @@ import torch
 
 from umi_lite.data.dataset import actions_to_targets, make_lowdim
 from umi_lite.policy import DiffusionPolicy
-from umi_lite.sim.env import OPEN, PickPlaceEnv
+from umi_lite.sim.env import FLOORS, OPEN, PickPlaceEnv
 from umi_lite.paths import resolve_args
 
 
@@ -114,6 +120,27 @@ def summarize(log):
                   f"cube lifted in {np.mean([e['lifted'] for e in log if e['success'] == ok]) * 100:.0f} %")
 
 
+def floor_tag(floor):
+    """preset name or image file -> short name usable in file names"""
+    return re.sub(r"[^A-Za-z0-9_-]", "_", os.path.splitext(os.path.basename(floor))[0])
+
+
+def compare_floors(results):
+    """results: {tag: log}, same seeds for every floor; paired comparison against the first one"""
+    tags = list(results)
+    base = np.array([e["success"] for e in results[tags[0]]])
+    print(f"\nfloor comparison ({len(base)} episodes each, same seeds and sampling noise; paired vs '{tags[0]}')")
+    print(f"  {'floor':14s} success   lost/gained   never closed   lifted   median dxy at close   steps (success)")
+    for t in tags:
+        log = results[t]
+        ok = np.array([e["success"] for e in log])
+        dxy = [e["grasp_dxy_mm"] for e in log if e["grasp_dxy_mm"] is not None]
+        st = [e["steps"] for e in log if e["success"]]
+        print(f"  {t:14s} {ok.mean() * 100:5.1f} %   -{int((base & ~ok).sum()):2d} / +{int((~base & ok).sum()):2d}"
+              f"      {sum(e['grasp_yaw_deg'] is None for e in log):6d}      {np.mean([e['lifted'] for e in log]) * 100:5.0f} %"
+              f"   {np.median(dxy) if dxy else float('nan'):11.1f} mm      {np.median(st) if st else float('nan'):8.0f}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ckpt", required=True)
@@ -126,29 +153,48 @@ def main():
     ap.add_argument("--ddim-steps", type=int, default=None, help="override sampling steps (trained default 10)")
     ap.add_argument("--smooth", type=int, default=1, help="moving-average window over the predicted chunk (1 = off)")
     ap.add_argument("--log", default=None, help="json with per-episode grasp diagnostics (default: next to ckpt)")
+    ap.add_argument("--floor", nargs="+", default=["default"],
+                    help=f"floor appearance(s): {', '.join(FLOORS)} or image files; several -> comparison table")
+    ap.add_argument("--floor-repeat", type=float, default=None,
+                    help="texture repeats across the 1.2 m table (default: per preset, 3 for image files)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     a = ap.parse_args()
     resolve_args(a, "ckpt", "video", "log")   # data/, runs/, ... -> data store (umi_lite/paths.py)
     pol, ck = DiffusionPolicy.load(a.ckpt, a.device)
     if a.ddim_steps:
         pol.n_infer = a.ddim_steps
-    env = PickPlaceEnv(img_res=a.res)
     if a.video:
         os.makedirs(a.video, exist_ok=True)
-    log = []
-    for i in range(a.episodes):
-        vp = os.path.join(a.video, f"ep_{i:03d}.mp4") if a.video and i < 5 else None
-        e = run_episode(env, pol, a.seed + i, a.exec_horizon, a.max_steps, a.device, vp, a.smooth)
-        log.append(e)
-        gy = "  -  " if e["grasp_yaw_deg"] is None else f"{e['grasp_yaw_deg']:+5.1f}"
-        print(f"episode {i}: {'SUCCESS' if e['success'] else 'fail'} ({e['steps']} steps)  "
-              f"yaw start {e['init_yaw_deg']:+5.1f} close {gy} deg  lifted {int(e['lifted'])}  "
-              f"running rate {np.mean([x['success'] for x in log]) * 100:.0f} %")
-    log_path = a.log or os.path.join(os.path.dirname(os.path.abspath(a.ckpt)), "eval_grasp.json")
-    json.dump(log, open(log_path, "w"), indent=1)
-    summarize(log)
-    print(f"per-episode log: {log_path}")
-    print(f"success rate: {np.mean([e['success'] for e in log]) * 100:.1f} % over {a.episodes} episodes")
+    multi = len(a.floor) > 1
+    results = {}
+    for floor in a.floor:
+        tag = floor_tag(floor)
+        env = PickPlaceEnv(img_res=a.res, floor=floor, floor_repeat=a.floor_repeat)
+        vdir = os.path.join(a.video, tag) if a.video and multi else a.video
+        if vdir:
+            os.makedirs(vdir, exist_ok=True)
+        if multi:
+            print(f"\n===== floor: {floor} =====")
+        log = []
+        for i in range(a.episodes):
+            vp = os.path.join(vdir, f"ep_{i:03d}.mp4") if vdir and i < 5 else None
+            e = run_episode(env, pol, a.seed + i, a.exec_horizon, a.max_steps, a.device, vp, a.smooth)
+            e["floor"] = floor
+            log.append(e)
+            gy = "  -  " if e["grasp_yaw_deg"] is None else f"{e['grasp_yaw_deg']:+5.1f}"
+            print(f"episode {i}: {'SUCCESS' if e['success'] else 'fail'} ({e['steps']} steps)  "
+                  f"yaw start {e['init_yaw_deg']:+5.1f} close {gy} deg  lifted {int(e['lifted'])}  "
+                  f"running rate {np.mean([x['success'] for x in log]) * 100:.0f} %")
+        log_path = a.log or os.path.join(os.path.dirname(os.path.abspath(a.ckpt)), "eval_grasp.json")
+        if multi:
+            log_path = f"{os.path.splitext(log_path)[0]}_{tag}.json"
+        json.dump(log, open(log_path, "w"), indent=1)
+        summarize(log)
+        print(f"per-episode log: {log_path}")
+        print(f"success rate: {np.mean([e['success'] for e in log]) * 100:.1f} % over {a.episodes} episodes")
+        results[tag] = log
+    if multi:
+        compare_floors(results)
 
 
 if __name__ == "__main__":

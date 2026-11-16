@@ -76,14 +76,75 @@ WORKSPACE_LO = np.array([-0.3, -0.3, 0.012])
 WORKSPACE_HI = np.array([0.3, 0.3, 0.35])
 
 
+# ---------------------------------------------------------------------- floor appearance
+# Visual-robustness test: the policy is trained on the "default" checker only. Other floors are swapped in
+# at evaluation time (physics untouched) to measure how much the policy depends on the table texture.
+FLOORS = ("default", "plain", "dark", "light", "blue", "fine", "coarse", "noise", "wood")
+TEX = 512  # floor texture resolution (must match the "grid" texture in the XML)
+
+
+def _checker(c1, c2, n=2, edge=(0.4, 0.4, 0.4)):
+    """n x n checker like MuJoCo's builtin one (with a thin edge line around the texture)"""
+    i = np.arange(TEX) * n // TEX
+    img = np.where(((i[:, None] + i[None]) % 2 == 0)[..., None], np.array(c1), np.array(c2)).astype(np.float64)
+    if edge is not None:
+        img[[0, -1]] = img[:, [0, -1]] = edge
+    return img
+
+
+def floor_texture(name):
+    """-> (rgb uint8 (TEX,TEX,3), texrepeat) for a preset name from FLOORS or an image file path.
+    texrepeat = how often the texture repeats across the 1.2 m table (default floor: 10 -> 6 cm squares)."""
+    c1, c2 = (0.62, 0.58, 0.52), (0.52, 0.48, 0.42)
+    rng = np.random.default_rng(0)
+    if name == "plain":                       # no texture at all, mean colour of the default floor
+        img, rep = np.ones((TEX, TEX, 3)) * (np.array(c1) + c2) / 2, 10
+    elif name == "dark":                      # same pattern, 45 % brightness
+        img, rep = _checker(c1, c2) * 0.45, 10
+    elif name == "light":                     # same pattern, brighter
+        img, rep = np.clip(_checker(c1, c2) * 1.45, 0, 1), 10
+    elif name == "blue":                      # same pattern, different hue
+        img, rep = _checker((0.45, 0.55, 0.68), (0.36, 0.45, 0.58)), 10
+    elif name == "fine":                      # same colours, 2 cm squares
+        img, rep = _checker(c1, c2, edge=None), 30
+    elif name == "coarse":                    # same colours, 20 cm squares
+        img, rep = _checker(c1, c2, edge=None), 3
+    elif name == "noise":                     # blocky random colours (strong clutter)
+        img, rep = np.kron(rng.uniform(0.15, 0.9, (32, 32, 3)), np.ones((TEX // 32, TEX // 32, 1))), 4
+    elif name == "wood":                      # procedural planks with grain
+        y, x = np.mgrid[0:TEX, 0:TEX] / TEX
+        plank = np.floor(y * 8)
+        tone = rng.uniform(0.75, 1.0, 8)[plank.astype(int)]
+        grain = 0.06 * np.sin(2 * np.pi * (x * 40 + 3 * np.sin(2 * np.pi * (x * 2 + plank * 0.37))))
+        gap = (np.abs(y * 8 - np.round(y * 8)) < 0.03) | (np.abs((x + plank * 0.31) % 1.0) < 0.004)
+        img = (tone + grain)[..., None] * np.array([0.62, 0.43, 0.26])
+        img[gap] *= 0.45
+        rep = 3
+    elif os.path.isfile(name):                # any image (photo of a real table, carpet, ...)
+        import cv2
+        bgr = cv2.imread(name, cv2.IMREAD_COLOR)
+        if bgr is None:
+            raise ValueError(f"cannot read floor image {name}")
+        h, w = bgr.shape[:2]
+        m = min(h, w)
+        bgr = bgr[(h - m) // 2:(h - m) // 2 + m, (w - m) // 2:(w - m) // 2 + m]
+        return cv2.cvtColor(cv2.resize(bgr, (TEX, TEX), interpolation=cv2.INTER_AREA), cv2.COLOR_BGR2RGB), 3
+    else:
+        raise ValueError(f"unknown floor '{name}': use one of {FLOORS} or an image file")
+    return (np.clip(img, 0, 1) * 255).astype(np.uint8), rep
+
+
 def hand_rot(yaw):
     """gripper pointing down (+z_hand = -z_world), rotated by yaw about world z"""
     return rot_z(yaw) @ rot_x(np.pi)
 
 
 class PickPlaceEnv:
-    def __init__(self, img_res=96, control_hz=10):
+    def __init__(self, img_res=96, control_hz=10, floor="default", floor_repeat=None):
+        """floor: preset from FLOORS or an image file; floor_repeat: texture repeats across the 1.2 m table"""
         self.m = mujoco.MjModel.from_xml_string(XML)
+        if floor != "default" or floor_repeat:
+            self._set_floor(floor, floor_repeat)   # before the renderers are created (texture upload)
         self.d = mujoco.MjData(self.m)
         self.n_sub = int(round(1.0 / control_hz / self.m.opt.timestep))
         self.res = img_res
@@ -96,6 +157,15 @@ class PickPlaceEnv:
         self.q_hand = self.m.jnt_qposadr[self.m.joint("hand").id]
         self.q_fl = self.m.jnt_qposadr[self.m.joint("fl").id]
         self.q_fr = self.m.jnt_qposadr[self.m.joint("fr").id]
+
+    def _set_floor(self, floor, repeat):
+        m, tex = self.m, self.m.texture("grid").id
+        if floor != "default":
+            img, rep = floor_texture(floor)
+            assert (m.tex_height[tex], m.tex_width[tex], m.tex_nchannel[tex]) == img.shape
+            m.tex_data[m.tex_adr[tex]:m.tex_adr[tex] + img.size] = img.reshape(-1)
+            repeat = repeat or rep
+        m.mat_texrepeat[m.material("grid").id] = repeat
 
     # ------------------------------------------------------------------ state access
     def hand_pose(self):

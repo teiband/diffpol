@@ -77,6 +77,8 @@ as given. On Colab the store is `My Drive/diffpol_store`.
 python -m umi_lite.sim.collect_demos --n 100 --n-perturb 60 --n-regrasp 40 --out data/sim_pick_v2
 python -m umi_lite.train --data data/sim_pick_v2 --out runs/sim_pick_v2 --epochs 100
 python -m umi_lite.sim.eval_policy --ckpt runs/sim_pick_v2/last.pt --episodes 50 --ddim-steps 50 --smooth 3 --video runs/sim_pick_v2/eval
+# visual robustness: same seeds on other floors (presets: plain dark light blue fine coarse noise wood, or an image file)
+python -m umi_lite.sim.eval_policy --ckpt runs/sim_pick_v2/last.pt --episodes 50 --ddim-steps 50 --smooth 3 --floor default plain dark wood my_table.jpg
 ```
 
 `--n-perturb` adds DART-style recovery episodes (pushed off course during the approach), `--n-regrasp`
