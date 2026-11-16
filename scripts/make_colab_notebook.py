@@ -138,6 +138,13 @@ else:
     display(HTML(f'<video width=480 controls><source src="data:video/mp4;base64,{b64encode(open("/content/ep_h264.mp4","rb").read()).decode()}" type="video/mp4"></video>'))
 """)
 code(r"""
+# ---------------- visual robustness: same seeds on other floors (the policy was trained on "default" only) ----------------
+# presets: default plain dark light blue fine coarse noise wood - or image files, e.g. f"{STORE}/my_table.jpg"
+FLOORS = "default plain dark light blue fine coarse noise wood"
+!python -m umi_lite.sim.eval_policy --ckpt {RUN_DIR}/last.pt --episodes {EVAL_EPISODES} \
+    --ddim-steps 50 --smooth 3 --floor {FLOORS} --video {RUN_DIR}/eval_floors | grep -v "^episode"   # table at the end; videos in eval_floors/<floor>/
+""")
+code(r"""
 # ---------------- download the run (checkpoint + logs) - essential when running without Drive ----------------
 shutil.make_archive(f"/content/{RUN_NAME}", "zip", RUN_DIR)
 from google.colab import files
